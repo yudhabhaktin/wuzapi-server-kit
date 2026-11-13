@@ -1,0 +1,43 @@
+name: smoke
+# Installs the published release exactly as the README tells a server admin to,
+# on a real x86_64 Ubuntu 22.04 with systemd, and checks the service.
+on:
+  workflow_dispatch:
+  release:
+    types: [published]
+permissions:
+  contents: read
+jobs:
+  native-install:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Download the kit like the README says
+        run: |
+          mkdir -p ~/wuzapi-kit && cd ~/wuzapi-kit
+          curl -fLO https://github.com/${{ github.repository }}/releases/latest/download/wuzapi-kit.tgz
+          curl -fLO https://github.com/${{ github.repository }}/releases/latest/download/wuzapi-kit.tgz.sha256
+          sha256sum -c wuzapi-kit.tgz.sha256 && tar -xzf wuzapi-kit.tgz
+      - name: Reach check
+        run: cd ~/wuzapi-kit/wuzapi && ./check-whatsapp-reach.sh
+      - name: Native install (loopback)
+        run: cd ~/wuzapi-kit/wuzapi && uname -m && sudo ./setup-native.sh
+      - name: Service is up, sandboxed and talks to WhatsApp
+        run: |
+          set -e
+          systemctl is-active wuzapi
+          ps -o user= -C wuzapi
+          systemd-analyze security wuzapi --no-pager | tail -1
+          A=$(sudo sed -n 's/^WUZAPI_ADMIN_TOKEN=//p' /etc/wuzapi/wuzapi.env); U=http://127.0.0.1:8080
+          T=$(openssl rand -hex 24)
+          curl -fsS -X POST -H "Authorization: $A" -H 'Content-Type: application/json' -d "{\"name\":\"smoke\",\"token\":\"$T\",\"events\":\"Message\"}" $U/admin/users >/dev/null
+          curl -fsS -X POST -H "Token: $T" -H 'Content-Type: application/json' -d '{"Subscribe":["Message"],"Immediate":true}' $U/session/connect >/dev/null
+          sleep 5
+          curl -fsS -H "Token: $T" $U/session/qr | grep -q 'data:image/png;base64' && echo "QR received from WhatsApp"
+      - name: Rerun keeps secrets, uninstall
+        run: |
+          cd ~/wuzapi-kit/wuzapi
+          a=$(sudo sha256sum /etc/wuzapi/wuzapi.env | cut -c1-12)
+          sudo ./setup-native.sh >/dev/null
+          b=$(sudo grep -E '^WUZAPI_(ADMIN|GLOBAL)' /etc/wuzapi/wuzapi.env | sha256sum)
+          sudo ./setup-native.sh uninstall
+          test "$(systemctl is-active wuzapi || true)" != active
