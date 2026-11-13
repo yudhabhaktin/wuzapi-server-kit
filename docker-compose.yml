@@ -1,0 +1,28 @@
+# WuzAPI alone, for a dedicated Linux server. The app runs elsewhere and reaches
+# this over a private network or an SSH tunnel; never publish it to the internet:
+# WuzAPI speaks plain HTTP and its tokens control the WhatsApp number.
+services:
+  wuzapi:
+    image: asternic/wuzapi:1.0.9
+    command: ["-datadir", "/data"]
+    restart: unless-stopped
+    ports:
+      # setup.sh refuses 0.0.0.0. Default 127.0.0.1 (reach it through an SSH tunnel);
+      # set BIND_ADDR to the server's private IP for an app server on the same network.
+      - "${BIND_ADDR:-127.0.0.1}:${WUZAPI_PORT:-8080}:8080"
+    environment:
+      WUZAPI_ADMIN_TOKEN: ${WUZAPI_ADMIN_TOKEN:?run setup.sh}
+      WUZAPI_GLOBAL_ENCRYPTION_KEY: ${WUZAPI_GLOBAL_ENCRYPTION_KEY:?run setup.sh}
+      WUZAPI_GLOBAL_HMAC_KEY: ${WUZAPI_GLOBAL_HMAC_KEY:?run setup.sh}
+      SESSION_DEVICE_NAME: ${SESSION_DEVICE_NAME:-WA Demo}
+      # The app parses JSON webhooks and verifies their HMAC on the raw bytes.
+      WEBHOOK_FORMAT: json
+      TZ: ${TZ:-Asia/Jakarta}
+    volumes:
+      - wuzapi_data:/data   # the linked session lives here: back it up, never share it
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
+
+volumes:
+  wuzapi_data:

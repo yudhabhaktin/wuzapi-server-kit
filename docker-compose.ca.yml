@@ -1,0 +1,7 @@
+# Only when the network inspects TLS and IT has given you the inspecting CA:
+# trust the host's store (which must contain that CA) inside the container.
+# setup.sh adds this file when TRUST_HOST_CA=1.
+services:
+  wuzapi:
+    volumes:
+      - /etc/ssl/certs/ca-certificates.crt:/etc/ssl/certs/ca-certificates.crt:ro
