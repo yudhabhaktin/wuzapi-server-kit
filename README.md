@@ -1,20 +1,20 @@
 # WuzAPI on a dedicated Linux server
 
-Runs only WuzAPI (the WhatsApp link). The app runs elsewhere, reaches WuzAPI
+Runs only WuzAPI (the WhatsApp link), natively under systemd or in Docker. The app runs elsewhere, reaches WuzAPI
 privately, and receives messages on its webhook. The app itself creates its
 WuzAPI user, sets the webhook and shows the QR in its console on boot.
 
 ## 1. Download the kit on the server
 
+Work in a folder you own (not `/` or `/opt`):
+
 ```bash
+mkdir -p ~/wuzapi-kit && cd ~/wuzapi-kit
 curl -fLO https://github.com/yudhabhaktin/wuzapi-server-kit/releases/latest/download/wuzapi-kit.tgz
 curl -fLO https://github.com/yudhabhaktin/wuzapi-server-kit/releases/latest/download/wuzapi-kit.tgz.sha256
 sha256sum -c wuzapi-kit.tgz.sha256 && tar -xzf wuzapi-kit.tgz && cd wuzapi
+./check-whatsapp-reach.sh
 ```
-
-(`wget` works too.) The server needs Docker Engine with the Compose plugin, `curl` and
-`openssl`, and outbound HTTPS to `github.com` for this download and to Docker Hub
-for the WuzAPI image.
 
 On a Windows app server, download only the check script:
 
@@ -22,32 +22,47 @@ On a Windows app server, download only the check script:
 Invoke-WebRequest https://github.com/yudhabhaktin/wuzapi-server-kit/releases/latest/download/check-whatsapp-reach.ps1 -OutFile check-whatsapp-reach.ps1
 ```
 
-## 2. Run setup on the server
+## 2. Install WuzAPI: native (recommended) or Docker
+
+**Native systemd service: `setup-native.sh`.** No Docker. Use it on a server that
+runs other things: it leaves the firewall untouched, so `ufw`/`firewalld` rules
+keep working. It downloads the WuzAPI binary for the CPU from this release,
+verifies its checksum, and runs it as a locked-down service (`systemd-analyze
+security` rates it 3.1, OK).
 
 ```bash
-./setup.sh
+sudo ./setup-native.sh                                              # loopback only (SSH tunnel)
+sudo BIND_ADDR=<this server's private IP> ALLOW_FROM=<app server IP> ./setup-native.sh
 ```
 
-It (1) checks the server can reach WhatsApp and stops if not, (2) generates
-`.env` with the admin token and keys (mode 600), (3) starts WuzAPI and checks
-`/health` and the admin API, (4) prints what to put in the app. Safe to rerun:
-existing secrets are kept, because changing the encryption key loses the
-linked session.
-
-| Situation | Command |
+| Path | Holds |
 |---|---|
-| App on another network (VPS, your laptop) | `./setup.sh` — loopback only; the app connects through an SSH tunnel |
-| App server on the same private network | `BIND_ADDR=<this server's private IP> ALLOW_FROM=<app server IP> ./setup.sh` |
-| Egress through a proxy | add `PROXY=http://proxy:8080` |
-| Network inspects TLS and the host trusts IT's CA | add `TRUST_HOST_CA=1` |
+| `/opt/wuzapi/wuzapi` | the binary (root-owned) |
+| `/var/lib/wuzapi` | the linked session and database (service user only) |
+| `/etc/wuzapi/wuzapi.env` | admin token and keys (root only, `600`) |
 
-`BIND_ADDR=0.0.0.0` is refused: WuzAPI speaks plain HTTP, and its tokens control
-the WhatsApp number.
+Logs: `journalctl -u wuzapi -f` · status: `systemctl status wuzapi` · remove:
+`sudo ./setup-native.sh uninstall` (keeps the session and secrets until you delete them).
 
-**Firewall:** ports published by Docker bypass `ufw`/`firewalld`. With
-`BIND_ADDR` set to a private IP, the script prints the `DOCKER-USER` iptables rule
-that admits only `ALLOW_FROM`. Run it as root and persist it
-(`iptables-persistent` / `netfilter-persistent save`).
+**Docker: `setup.sh`.** For a server dedicated to WuzAPI that already has Docker
+Engine and the Compose plugin. Docker rewrites iptables and its published ports
+bypass `ufw`; the script prints the `DOCKER-USER` rule that compensates.
+
+```bash
+./setup.sh                                                          # loopback only
+BIND_ADDR=<private IP> ALLOW_FROM=<app server IP> ./setup.sh
+```
+
+Both scripts first check that WhatsApp is reachable and stop if not, generate
+the secrets once (rerunning keeps them: a new encryption key loses the linked
+session), refuse `0.0.0.0` (WuzAPI speaks plain HTTP and its tokens control the
+WhatsApp number), verify `/health` and the admin API, and print what the app needs.
+
+| Option | Native | Docker |
+|---|---|---|
+| Egress through a proxy | `PROXY=http://proxy:8080` | same |
+| Network inspects TLS | the host trust store applies automatically | `TRUST_HOST_CA=1` |
+| Start despite a failed check | `FORCE=1` | same |
 
 ## 3. Point the app at it
 
@@ -92,8 +107,9 @@ All three paths must work. Check each from the side that opens it:
 
 Steps:
 
-1. On Linux: `BIND_ADDR=<linux private IP> ALLOW_FROM=<IIS IP> ./setup.sh`, then run
-   the printed `iptables -I DOCKER-USER ...` rule as root and persist it.
+1. On Linux: `sudo BIND_ADDR=<linux private IP> ALLOW_FROM=<IIS IP> ./setup-native.sh`,
+   then run the firewall rule it prints (`ufw allow from <IIS IP> ...`). With Docker
+   instead: `./setup.sh`, and the printed `iptables -I DOCKER-USER ...` rule, persisted.
 2. Open TCP 8080 from the IIS server to the Linux server in any firewall between
    them (Windows outbound rarely blocks; a network firewall may).
 3. Give the app `WUZAPI_URL=http://<linux private IP>:8080`, the admin token, and a
@@ -107,10 +123,17 @@ HTTPS; the webhook is HMAC-signed and the API needs the token either way.
 
 ## Operating it
 
-| Task | Command |
-|---|---|
-| Logs | `docker compose logs -f wuzapi` |
-| Restart | `docker compose --env-file .env restart` |
-| Upgrade | change the image tag in `docker-compose.yml`, then `./setup.sh` |
-| Back up the linked session | `docker run --rm -v wuzapi-server_wuzapi_data:/d -v $PWD:/b alpine tar czf /b/wuzapi-data.tgz -C /d .` (plus `.env`) |
-| Unlink | the app's console, or WhatsApp → Linked devices on the phone |
+| Task | Native (`setup-native.sh`) | Docker (`setup.sh`) |
+|---|---|---|
+| Logs | `journalctl -u wuzapi -f` | `docker compose logs -f wuzapi` |
+| Restart | `sudo systemctl restart wuzapi` | `docker compose --env-file .env restart` |
+| Upgrade | rerun with a newer kit: `sudo KIT_TAG=<tag> ./setup-native.sh` | change the image tag in `docker-compose.yml`, then `./setup.sh` |
+| Admin token | `sudo grep ADMIN /etc/wuzapi/wuzapi.env` | `grep ADMIN .env` |
+| Back up the linked session | `sudo tar czf wuzapi-backup.tgz /var/lib/wuzapi /etc/wuzapi` | `docker run --rm -v wuzapi-server_wuzapi_data:/d -v $PWD:/b alpine tar czf /b/wuzapi-data.tgz -C /d .` (plus `.env`) |
+| Remove | `sudo ./setup-native.sh uninstall` | `docker compose --env-file .env down` |
+| Unlink the number | the app's console, or WhatsApp → Linked devices on the phone | same |
+
+A backup holds the device keys of the linked number: keep it encrypted and on
+the server's own backup, never in chat or email.
+
+Licences of the redistributed WuzAPI binary: [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
