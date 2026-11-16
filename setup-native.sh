@@ -10,7 +10,7 @@
 #   sudo ./setup-native.sh uninstall                           # stop and remove (keeps data)
 set -euo pipefail
 cd "$(dirname "$0")"
-KIT_TAG=${KIT_TAG:-v1.1.0}
+KIT_TAG=${KIT_TAG:-v1.2.0}
 KIT_URL="https://github.com/yudhabhaktin/wuzapi-server-kit/releases/download/$KIT_TAG"
 SVC=wuzapi; BIN_DIR=/opt/wuzapi; DATA=/var/lib/wuzapi; ETC=/etc/wuzapi; ENVF=$ETC/wuzapi.env
 UNIT=/etc/systemd/system/$SVC.service

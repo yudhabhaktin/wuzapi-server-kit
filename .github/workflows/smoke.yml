@@ -41,3 +41,41 @@ jobs:
           b=$(sudo grep -E '^WUZAPI_(ADMIN|GLOBAL)' /etc/wuzapi/wuzapi.env | sha256sum)
           sudo ./setup-native.sh uninstall
           test "$(systemctl is-active wuzapi || true)" != active
+
+  windows-desktop:
+    runs-on: windows-latest
+    steps:
+      - name: Reach check, Windows PowerShell 5.1
+        shell: powershell
+        run: |
+          $PSVersionTable.PSVersion.ToString()
+          Invoke-WebRequest https://github.com/${{ github.repository }}/releases/latest/download/check-whatsapp-reach.ps1 -OutFile check.ps1 -UseBasicParsing
+          powershell -ExecutionPolicy Bypass -File .\check.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Reach check, PowerShell 7
+        shell: pwsh
+        run: ./check.ps1 -Hosts web.whatsapp.com
+      - name: WuzAPI.exe runs, verified, and gets a QR from WhatsApp
+        shell: pwsh
+        run: |
+          $u = "https://github.com/${{ github.repository }}/releases/latest/download"
+          Invoke-WebRequest "$u/wuzapi-windows-amd64.exe" -OutFile wuzapi.exe
+          Invoke-WebRequest "$u/SHA256SUMS-wuzapi" -OutFile sums.txt
+          $want = (Get-Content sums.txt | Where-Object { $_ -match ' wuzapi-windows-amd64.exe$' }).Split(' ')[0]
+          $got = (Get-FileHash wuzapi.exe -Algorithm SHA256).Hash.ToLower()
+          if ($want -ne $got) { throw "checksum mismatch" }
+          $env:WUZAPI_ADMIN_TOKEN = -join ((1..48) | ForEach-Object { '{0:x}' -f (Get-Random -Max 16) })
+          $env:WUZAPI_GLOBAL_ENCRYPTION_KEY = -join ((1..32) | ForEach-Object { '{0:x}' -f (Get-Random -Max 16) })
+          $env:WUZAPI_GLOBAL_HMAC_KEY = -join ((1..64) | ForEach-Object { '{0:x}' -f (Get-Random -Max 16) })
+          $env:WEBHOOK_FORMAT = 'json'
+          New-Item -ItemType Directory -Force data | Out-Null
+          $p = Start-Process .\wuzapi.exe -ArgumentList '-address','127.0.0.1','-port','8080','-datadir','data' -PassThru -NoNewWindow
+          for ($i = 0; $i -lt 30; $i++) { try { Invoke-RestMethod http://127.0.0.1:8080/health | Out-Null; break } catch { Start-Sleep 1 } }
+          $t = -join ((1..48) | ForEach-Object { '{0:x}' -f (Get-Random -Max 16) })
+          Invoke-RestMethod -Method Post http://127.0.0.1:8080/admin/users -Headers @{ Authorization = $env:WUZAPI_ADMIN_TOKEN } -ContentType 'application/json' -Body (@{ name = 'smoke'; token = $t; events = 'Message' } | ConvertTo-Json) | Out-Null
+          Invoke-RestMethod -Method Post http://127.0.0.1:8080/session/connect -Headers @{ Token = $t } -ContentType 'application/json' -Body '{"Subscribe":["Message"],"Immediate":true}' | Out-Null
+          Start-Sleep 5
+          $qr = (Invoke-RestMethod http://127.0.0.1:8080/session/qr -Headers @{ Token = $t }).data.QRCode
+          Stop-Process $p
+          if ($qr -notlike 'data:image/png;base64*') { throw "no QR" }
+          "QR received from WhatsApp on Windows"

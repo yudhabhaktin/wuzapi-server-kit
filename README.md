@@ -136,4 +136,11 @@ HTTPS; the webhook is HMAC-signed and the API needs the token either way.
 A backup holds the device keys of the linked number: keep it encrypted and on
 the server's own backup, never in chat or email.
 
+## On a desktop (Windows, macOS) without Docker
+
+The release also carries `wuzapi-windows-amd64.exe` and `wuzapi-darwin-<cpu>`, for
+running WuzAPI next to an app on a developer machine. The `whatsapp-demo` app does
+this with `npm run wuzapi`, which downloads the right binary, verifies it against
+`SHA256SUMS-wuzapi` and starts it on `127.0.0.1`.
+
 Licences of the redistributed WuzAPI binary: [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).

@@ -1,10 +1,11 @@
 # Third-party notices
 
-The release assets `wuzapi-linux-amd64` and `wuzapi-linux-arm64` are unmodified builds of
+The release assets `wuzapi-<os>-<cpu>` (Linux amd64/arm64, Windows amd64, macOS
+amd64/arm64) are unmodified builds of
 WuzAPI v1.0.9 (https://github.com/asternic/wuzapi, commit `5db48b6`), built with Go 1.26.5:
 
 ```
-CGO_ENABLED=0 GOOS=linux GOARCH=<amd64|arm64> go build -trimpath -ldflags "-s -w"
+CGO_ENABLED=0 GOOS=<linux|windows|darwin> GOARCH=<amd64|arm64> go build -trimpath -ldflags "-s -w"
 ```
 
 Checksums are in `SHA256SUMS-wuzapi`. Nothing in this kit changes their source.
