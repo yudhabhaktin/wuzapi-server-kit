@@ -139,8 +139,11 @@ the server's own backup, never in chat or email.
 ## On a desktop (Windows, macOS) without Docker
 
 The release also carries `wuzapi-windows-amd64.exe` and `wuzapi-darwin-<cpu>`, for
-running WuzAPI next to an app on a developer machine. The `whatsapp-demo` app does
-this with `npm run wuzapi`, which downloads the right binary, verifies it against
-`SHA256SUMS-wuzapi` and starts it on `127.0.0.1`.
+running WuzAPI next to an app on a developer machine. `wuzapi-local.mjs` (Node 24,
+no other dependency) does it: run `node wuzapi-local.mjs` in a folder whose `.env`
+holds `WUZAPI_ADMIN_TOKEN`, `WUZAPI_GLOBAL_ENCRYPTION_KEY` and
+`WUZAPI_GLOBAL_HMAC_KEY`. It downloads the binary for the OS and CPU, verifies it
+against `SHA256SUMS-wuzapi`, and starts it on `127.0.0.1` (data in `.wuzapi/`).
+The `whatsapp-demo` app ships the same script as `npm run wuzapi`.
 
 Licences of the redistributed WuzAPI binary: [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).

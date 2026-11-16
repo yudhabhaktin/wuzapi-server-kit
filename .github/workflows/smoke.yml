@@ -79,3 +79,32 @@ jobs:
           Stop-Process $p
           if ($qr -notlike 'data:image/png;base64*') { throw "no QR" }
           "QR received from WhatsApp on Windows"
+
+  windows-launcher:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24 }
+      - name: A .env like `npm run setup` writes (no Docker, localhost webhook)
+        shell: cmd
+        run: |
+          node -e "const r=n=>require('crypto').randomBytes(n).toString('hex');require('fs').writeFileSync('.env',['WUZAPI_ADMIN_TOKEN='+r(24),'WUZAPI_GLOBAL_ENCRYPTION_KEY='+r(16),'WUZAPI_GLOBAL_HMAC_KEY='+r(32),'WUZAPI_PORT=8080','WUZAPI_URL=http://localhost:8080','PUBLIC_WEBHOOK_URL=http://localhost:3000/api/webhook',''].join('\n'))"
+      - name: node wuzapi-local.mjs from Command Prompt, then QR
+        shell: pwsh
+        run: |
+          $p = Start-Process cmd -ArgumentList '/c','node wuzapi-local.mjs > launcher.log 2>&1' -PassThru -WindowStyle Hidden
+          for ($i = 0; $i -lt 90; $i++) { try { Invoke-RestMethod http://127.0.0.1:8080/health | Out-Null; break } catch { Start-Sleep 1 } }
+          Get-Content launcher.log -TotalCount 3
+          $listen = Get-NetTCPConnection -LocalPort 8080 -State Listen | Select-Object -ExpandProperty LocalAddress
+          "listening on: $listen"
+          if ($listen -ne '127.0.0.1') { throw "expected 127.0.0.1 only" }
+          $admin = (Select-String -Path .env -Pattern '^WUZAPI_ADMIN_TOKEN=(.*)$').Matches[0].Groups[1].Value
+          $t = -join ((1..48) | ForEach-Object { '{0:x}' -f (Get-Random -Max 16) })
+          Invoke-RestMethod -Method Post http://127.0.0.1:8080/admin/users -Headers @{ Authorization = $admin } -ContentType 'application/json' -Body (@{ name = 'smoke'; token = $t; events = 'Message' } | ConvertTo-Json) | Out-Null
+          Invoke-RestMethod -Method Post http://127.0.0.1:8080/session/connect -Headers @{ Token = $t } -ContentType 'application/json' -Body '{"Subscribe":["Message"],"Immediate":true}' | Out-Null
+          Start-Sleep 5
+          $qr = (Invoke-RestMethod http://127.0.0.1:8080/session/qr -Headers @{ Token = $t }).data.QRCode
+          if ($qr -notlike 'data:image/png;base64*') { throw "no QR" }
+          if (-not (Test-Path .wuzapi\wuzapi-windows-amd64.exe)) { throw "binary not where expected" }
+          "Launcher on Windows: verified download, 127.0.0.1 only, QR received"
